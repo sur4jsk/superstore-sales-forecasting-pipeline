@@ -1,14 +1,3 @@
-# ── 04_visualise.py ───────────────────────────────────────────────────────────
-# Verification chart — run this BEFORE going to Power BI.
-# If the chart looks right, your data pipeline is working correctly.
-#
-# Creates 4 subplots:
-#   1. Revenue trend + 60-day forecast line
-#   2. Sales by Category (bar)
-#   3. Sales by Region (bar)
-#   4. Monthly order count trend
-# ─────────────────────────────────────────────────────────────────────────────
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
