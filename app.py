@@ -1,213 +1,354 @@
+#streamlit
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import timedelta
 
-# ── Page config ──────────────────────────────────────────────────────────────
+# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Superstore Sales Forecasting",
-    page_icon="📦",
+    page_icon="📊",
     layout="wide"
 )
 
-# ── Load data ─────────────────────────────────────────────────────────────────
+# ── Custom CSS ────────────────────────────────────────────────────────────────
+st.markdown("""
+    <style>
+    .main { background-color: #F0F8FF; }
+    .metric-card {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        border-left: 5px solid #00B4D8;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    h1 { color: #0D1F3C !important; }
+    h2, h3 { color: #0096C7 !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+# ── Load Data ─────────────────────────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    df = pd.read_csv("output/combined_for_powerbi.csv")
-    # Normalise column names
-    df.columns = df.columns.str.strip()
+    clean    = pd.read_csv('data/processed/superstore_clean.csv',
+                           parse_dates=['order_date'])
+    combined = pd.read_csv('output/combined_for_powerbi.csv',
+                           parse_dates=['date'])
+    region   = pd.read_csv('output/region_summary.csv')
+    forecast = pd.read_csv('data/processed/forecast_60day.csv',
+                           parse_dates=['date'])
+    hist     = pd.read_csv('data/processed/historical_window.csv',
+                           parse_dates=['date'])
+    return clean, combined, region, forecast, hist
 
-    # Find the date column (handles Order Date, order_date, date, etc.)
-    date_col = next((c for c in df.columns if "date" in c.lower() and "ship" not in c.lower()), None)
-    if date_col:
-        df[date_col] = pd.to_datetime(df[date_col], infer_datetime_format=True, errors="coerce")
-        df = df.rename(columns={date_col: "Order Date"})
+clean, combined, region, forecast, hist = load_data()
 
-    # Find sales column
-    sales_col = next((c for c in df.columns if "sale" in c.lower()), None)
-    if sales_col:
-        df = df.rename(columns={sales_col: "Sales"})
+# ════════════════════════════════════════════════════════════════════════════
+# HEADER
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown("## 📊 Superstore Sales Forecasting Dashboard")
+st.markdown("**End-to-end data engineering pipeline | Python · Pandas · Streamlit · Plotly**")
+st.markdown("---")
 
-    # Find type/label column (historical vs forecast)
-    type_col = next((c for c in df.columns if "type" in c.lower() or "label" in c.lower() or "forecast" in c.lower()), None)
-    if type_col:
-        df = df.rename(columns={type_col: "Type"})
-    else:
-        df["Type"] = "Historical"
+# ════════════════════════════════════════════════════════════════════════════
+# SIDEBAR — Filters
+# ════════════════════════════════════════════════════════════════════════════
+st.sidebar.image("https://img.icons8.com/color/96/combo-chart.png", width=60)
+st.sidebar.title("🔧 Filters")
 
-    df = df.dropna(subset=["Order Date", "Sales"])
-    df = df.sort_values("Order Date")
-    return df
-
-df = load_data()
-
-has_category = "Category" in df.columns
-has_region   = "Region" in df.columns
-has_profit   = "Profit" in df.columns
-has_segment  = "Segment" in df.columns
-
-# ── Sidebar filters ───────────────────────────────────────────────────────────
-st.sidebar.image("https://img.icons8.com/fluency/96/combo-chart.png", width=60)
-st.sidebar.title("Filters")
-
-min_date = df["Order Date"].min().date()
-max_date = df["Order Date"].max().date()
-date_range = st.sidebar.date_input("Date Range", [min_date, max_date], min_value=min_date, max_value=max_date)
-
-if has_category:
-    categories = ["All"] + sorted(df["Category"].dropna().unique().tolist())
-    selected_cat = st.sidebar.selectbox("Category", categories)
-else:
-    selected_cat = "All"
-
-if has_region:
-    regions = ["All"] + sorted(df["Region"].dropna().unique().tolist())
-    selected_region = st.sidebar.selectbox("Region", regions)
-else:
-    selected_region = "All"
-
-# apply filters
-filtered = df.copy()
-if len(date_range) == 2:
-    filtered = filtered[
-        (filtered["Order Date"].dt.date >= date_range[0]) &
-        (filtered["Order Date"].dt.date <= date_range[1])
-    ]
-if selected_cat != "All" and has_category:
-    filtered = filtered[filtered["Category"] == selected_cat]
-if selected_region != "All" and has_region:
-    filtered = filtered[filtered["Region"] == selected_region]
-
-historical = filtered[filtered["Type"] == "Historical"] if "Type" in filtered.columns else filtered
-forecast   = filtered[filtered["Type"] != "Historical"] if "Type" in filtered.columns else pd.DataFrame()
-
-# ── Header ────────────────────────────────────────────────────────────────────
-st.title("📦 Superstore Sales Forecasting Dashboard")
-st.caption("End-to-end ETL pipeline with 6-month rolling window + 60-day forecast · Built by Suraj Kartha")
-st.divider()
-
-# ── KPI cards ─────────────────────────────────────────────────────────────────
-k1, k2, k3, k4 = st.columns(4)
-
-total_sales = historical["Sales"].sum()
-avg_monthly = historical.groupby(historical["Order Date"].dt.to_period("M"))["Sales"].sum().mean()
-forecast_total = forecast["Sales"].sum() if not forecast.empty else 0
-profit_total = historical["Profit"].sum() if has_profit else None
-
-k1.metric("Total Historical Sales", f"${total_sales:,.0f}")
-k2.metric("Avg Monthly Sales", f"${avg_monthly:,.0f}")
-k3.metric("60-Day Forecast Total", f"${forecast_total:,.0f}" if forecast_total else "N/A")
-if profit_total is not None:
-    k4.metric("Total Profit", f"${profit_total:,.0f}")
-else:
-    k4.metric("Data Points", f"{len(historical):,}")
-
-st.divider()
-
-# ── Chart 1: Sales Trend + Forecast ───────────────────────────────────────────
-st.subheader("📈 Sales Trend — Historical + 60-Day Forecast")
-
-daily_hist = historical.groupby("Order Date")["Sales"].sum().reset_index()
-daily_hist["Rolling 6M Avg"] = daily_hist["Sales"].rolling(window=180, min_periods=1).mean()
-
-fig1 = go.Figure()
-fig1.add_trace(go.Scatter(
-    x=daily_hist["Order Date"], y=daily_hist["Sales"],
-    name="Daily Sales", mode="lines",
-    line=dict(color="#7C3AED", width=1.5), opacity=0.6
-))
-fig1.add_trace(go.Scatter(
-    x=daily_hist["Order Date"], y=daily_hist["Rolling 6M Avg"],
-    name="6-Month Rolling Avg", mode="lines",
-    line=dict(color="#2563EB", width=2.5)
-))
-
-if not forecast.empty:
-    daily_fc = forecast.groupby("Order Date")["Sales"].sum().reset_index()
-    fig1.add_trace(go.Scatter(
-        x=daily_fc["Order Date"], y=daily_fc["Sales"],
-        name="60-Day Forecast", mode="lines",
-        line=dict(color="#F59E0B", width=2.5, dash="dash")
-    ))
-    # Shaded forecast zone
-    fig1.add_vrect(
-        x0=daily_fc["Order Date"].min(), x1=daily_fc["Order Date"].max(),
-        fillcolor="#FEF3C7", opacity=0.3, layer="below", line_width=0,
-    )
-
-fig1.update_layout(
-    height=400, plot_bgcolor="white", paper_bgcolor="white",
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
-    xaxis=dict(showgrid=True, gridcolor="#F3F4F6"),
-    yaxis=dict(showgrid=True, gridcolor="#F3F4F6", title="Sales ($)")
+# Region filter
+all_regions = sorted(clean['region'].unique())
+selected_regions = st.sidebar.multiselect(
+    "Select Region(s)",
+    options=all_regions,
+    default=all_regions
 )
-st.plotly_chart(fig1, use_container_width=True)
 
-# ── Chart 2 & 3 ───────────────────────────────────────────────────────────────
-col_a, col_b = st.columns(2)
+# Category filter
+all_cats = sorted(clean['category'].unique())
+selected_cats = st.sidebar.multiselect(
+    "Select Category(s)",
+    options=all_cats,
+    default=all_cats
+)
 
-with col_a:
-    st.subheader("📅 Monthly Sales")
-    monthly = historical.copy()
-    monthly["Month"] = monthly["Order Date"].dt.to_period("M").astype(str)
-    monthly_grouped = monthly.groupby("Month")["Sales"].sum().reset_index()
-    fig2 = px.bar(
-        monthly_grouped, x="Month", y="Sales",
-        color_discrete_sequence=["#7C3AED"],
-        labels={"Sales": "Sales ($)", "Month": ""},
-    )
-    fig2.update_layout(
-        height=350, plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(tickangle=-45), yaxis=dict(showgrid=True, gridcolor="#F3F4F6")
-    )
-    st.plotly_chart(fig2, use_container_width=True)
+# Segment filter
+all_segs = sorted(clean['segment'].unique())
+selected_segs = st.sidebar.multiselect(
+    "Select Segment(s)",
+    options=all_segs,
+    default=all_segs
+)
 
-with col_b:
-    if has_category:
-        st.subheader("🗂️ Sales by Category")
-        cat_data = historical.groupby("Category")["Sales"].sum().reset_index()
-        fig3 = px.pie(
-            cat_data, values="Sales", names="Category",
-            color_discrete_sequence=["#7C3AED", "#2563EB", "#F59E0B"],
-            hole=0.4
-        )
-        fig3.update_layout(height=350, paper_bgcolor="white")
-        st.plotly_chart(fig3, use_container_width=True)
-    elif has_segment:
-        st.subheader("👥 Sales by Segment")
-        seg_data = historical.groupby("Segment")["Sales"].sum().reset_index()
-        fig3 = px.pie(
-            seg_data, values="Sales", names="Segment",
-            color_discrete_sequence=["#7C3AED", "#2563EB", "#F59E0B"],
-            hole=0.4
-        )
-        fig3.update_layout(height=350, paper_bgcolor="white")
-        st.plotly_chart(fig3, use_container_width=True)
-    else:
-        st.subheader("📊 Sales Distribution")
-        fig3 = px.histogram(
-            historical, x="Sales", nbins=40,
-            color_discrete_sequence=["#7C3AED"]
-        )
-        fig3.update_layout(height=350, plot_bgcolor="white", paper_bgcolor="white")
-        st.plotly_chart(fig3, use_container_width=True)
+# Year filter
+all_years = sorted(clean['year'].unique())
+selected_years = st.sidebar.multiselect(
+    "Select Year(s)",
+    options=all_years,
+    default=all_years
+)
 
-# ── Chart 4: Region breakdown ─────────────────────────────────────────────────
-if has_region:
-    st.subheader("🗺️ Sales by Region")
-    region_data = historical.groupby("Region")["Sales"].sum().reset_index().sort_values("Sales", ascending=True)
-    fig4 = px.bar(
-        region_data, x="Sales", y="Region", orientation="h",
-        color_discrete_sequence=["#2563EB"],
-        labels={"Sales": "Total Sales ($)"}
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📁 Project Links**")
+st.sidebar.markdown("[GitHub Repository](https://github.com/sur4jsk/superstore-sales-forecasting-pipeline)")
+st.sidebar.markdown("Built by **Vaisakh**")
+
+# ── Apply filters ─────────────────────────────────────────────────────────────
+filtered = clean[
+    (clean['region'].isin(selected_regions)) &
+    (clean['category'].isin(selected_cats)) &
+    (clean['segment'].isin(selected_segs)) &
+    (clean['year'].isin(selected_years))
+]
+
+# ════════════════════════════════════════════════════════════════════════════
+# KPI METRICS ROW
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown("### 📈 Key Metrics")
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+total_sales   = filtered['sales'].sum()
+total_orders  = filtered['order_id'].nunique()
+avg_order     = filtered['sales'].mean()
+top_category  = filtered.groupby('category')['sales'].sum().idxmax()
+avg_ship_days = filtered['shipping_days'].mean()
+
+col1.metric("💰 Total Revenue",    f"${total_sales:,.0f}")
+col2.metric("📦 Total Orders",     f"{total_orders:,}")
+col3.metric("🧾 Avg Order Value",  f"${avg_order:,.2f}")
+col4.metric("🏆 Top Category",     top_category)
+col5.metric("🚚 Avg Shipping",     f"{avg_ship_days:.1f} days")
+
+st.markdown("---")
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROW 1: Forecast Line Chart (full width)
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown("### 📉 Revenue Trend: Rolling 6-Month History + 60-Day Forecast")
+
+fig_line = go.Figure()
+
+# Historical daily revenue
+fig_line.add_trace(go.Scatter(
+    x=hist['date'],
+    y=hist['actual_revenue'],
+    name='Daily Revenue',
+    line=dict(color='#00B4D8', width=1),
+    opacity=0.5,
+    fill='tozeroy',
+    fillcolor='rgba(0,180,216,0.08)'
+))
+
+# 7-day moving average
+fig_line.add_trace(go.Scatter(
+    x=hist['date'],
+    y=hist['rolling_7d_avg'],
+    name='7-Day Moving Avg',
+    line=dict(color='#0D1F3C', width=2.5)
+))
+
+# 60-day forecast
+fig_line.add_trace(go.Scatter(
+    x=forecast['date'],
+    y=forecast['forecast_revenue'],
+    name='60-Day Forecast',
+    line=dict(color='#FF9F1C', width=2.5, dash='dash')
+))
+
+# Divider line
+fig_line.add_vline(
+    x=hist['date'].max(),
+    line_dash="dot",
+    line_color="grey",
+    annotation_text="Forecast starts →",
+    annotation_font_color="#FF9F1C"
+)
+
+fig_line.update_layout(
+    plot_bgcolor='white',
+    paper_bgcolor='#F0F8FF',
+    height=380,
+    legend=dict(orientation='h', yanchor='bottom', y=1.02),
+    xaxis_title='Date',
+    yaxis_title='Revenue (USD)',
+    yaxis_tickprefix='$',
+    margin=dict(l=10, r=10, t=30, b=10)
+)
+st.plotly_chart(fig_line, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROW 2: Category Bar + Region Donut
+# ════════════════════════════════════════════════════════════════════════════
+col_left, col_right = st.columns(2)
+
+# ── Sales by Category ─────────────────────────────────────────────────────────
+with col_left:
+    st.markdown("### 🗂️ Sales by Category")
+    cat_data = (filtered.groupby('category')['sales']
+                .sum()
+                .reset_index()
+                .sort_values('sales', ascending=True))
+
+    fig_bar = px.bar(
+        cat_data,
+        x='sales', y='category',
+        orientation='h',
+        color='category',
+        color_discrete_sequence=['#0D1F3C', '#0096C7', '#00B4D8'],
+        text=cat_data['sales'].apply(lambda x: f'${x:,.0f}')
     )
-    fig4.update_layout(
-        height=300, plot_bgcolor="white", paper_bgcolor="white",
-        xaxis=dict(showgrid=True, gridcolor="#F3F4F6")
+    fig_bar.update_traces(textposition='outside')
+    fig_bar.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='#F0F8FF',
+        showlegend=False,
+        height=320,
+        xaxis_tickprefix='$',
+        margin=dict(l=10, r=60, t=10, b=10)
     )
-    st.plotly_chart(fig4, use_container_width=True)
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+# ── Sales by Region ───────────────────────────────────────────────────────────
+with col_right:
+    st.markdown("### 🌍 Sales by Region")
+    region_data = (filtered.groupby('region')['sales']
+                   .sum()
+                   .reset_index())
+
+    fig_donut = px.pie(
+        region_data,
+        values='sales',
+        names='region',
+        hole=0.5,
+        color_discrete_sequence=['#0D1F3C', '#0096C7', '#00B4D8', '#48CAE4']
+    )
+    fig_donut.update_traces(
+        textposition='outside',
+        textinfo='label+percent'
+    )
+    fig_donut.update_layout(
+        paper_bgcolor='#F0F8FF',
+        height=320,
+        showlegend=True,
+        margin=dict(l=10, r=10, t=10, b=10)
+    )
+    st.plotly_chart(fig_donut, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROW 3: Monthly Trend + Shipping Analysis
+# ════════════════════════════════════════════════════════════════════════════
+col3_left, col3_right = st.columns(2)
+
+# ── Monthly Revenue Trend ─────────────────────────────────────────────────────
+with col3_left:
+    st.markdown("### 📅 Monthly Revenue Trend")
+    monthly = (filtered.groupby(
+                   filtered['order_date'].dt.to_period('M'))['sales']
+               .sum()
+               .reset_index())
+    monthly['order_date'] = monthly['order_date'].dt.to_timestamp()
+    monthly.columns = ['month', 'revenue']
+
+    fig_monthly = px.line(
+        monthly, x='month', y='revenue',
+        markers=True,
+        color_discrete_sequence=['#06D6A0']
+    )
+    fig_monthly.update_traces(line_width=2.5, marker_size=5)
+    fig_monthly.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='#F0F8FF',
+        height=300,
+        xaxis_title='Month',
+        yaxis_title='Revenue (USD)',
+        yaxis_tickprefix='$',
+        margin=dict(l=10, r=10, t=10, b=10)
+    )
+    st.plotly_chart(fig_monthly, use_container_width=True)
+
+# ── Sales by Ship Mode ────────────────────────────────────────────────────────
+with col3_right:
+    st.markdown("### 🚢 Sales by Ship Mode")
+    ship_data = (filtered.groupby('ship_mode')['sales']
+                 .sum()
+                 .reset_index()
+                 .sort_values('sales', ascending=False))
+
+    fig_ship = px.bar(
+        ship_data,
+        x='ship_mode', y='sales',
+        color='ship_mode',
+        color_discrete_sequence=['#0D1F3C','#0096C7','#00B4D8','#48CAE4'],
+        text=ship_data['sales'].apply(lambda x: f'${x:,.0f}')
+    )
+    fig_ship.update_traces(textposition='outside')
+    fig_ship.update_layout(
+        plot_bgcolor='white',
+        paper_bgcolor='#F0F8FF',
+        showlegend=False,
+        height=300,
+        yaxis_tickprefix='$',
+        xaxis_title='Ship Mode',
+        yaxis_title='Revenue (USD)',
+        margin=dict(l=10, r=10, t=10, b=40)
+    )
+    st.plotly_chart(fig_ship, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# ROW 4: Sub-Category Breakdown
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown("### 🔍 Sales by Sub-Category")
+subcat = (filtered.groupby(['category', 'sub_category'])['sales']
+          .sum()
+          .reset_index()
+          .sort_values('sales', ascending=True))
+
+fig_subcat = px.bar(
+    subcat,
+    x='sales', y='sub_category',
+    color='category',
+    orientation='h',
+    color_discrete_sequence=['#0D1F3C', '#0096C7', '#48CAE4'],
+    text=subcat['sales'].apply(lambda x: f'${x:,.0f}')
+)
+fig_subcat.update_traces(textposition='outside')
+fig_subcat.update_layout(
+    plot_bgcolor='white',
+    paper_bgcolor='#F0F8FF',
+    height=500,
+    xaxis_tickprefix='$',
+    xaxis_title='Revenue (USD)',
+    yaxis_title='',
+    margin=dict(l=10, r=80, t=10, b=10)
+)
+st.plotly_chart(fig_subcat, use_container_width=True)
+
+# ════════════════════════════════════════════════════════════════════════════
+# RAW DATA TABLE
+# ════════════════════════════════════════════════════════════════════════════
+st.markdown("---")
+st.markdown("### 🗃️ Raw Data Explorer")
+
+with st.expander("Click to view & explore the cleaned dataset"):
+    cols_to_show = ['order_date', 'category', 'sub_category', 'region',
+                    'segment', 'ship_mode', 'sales', 'shipping_days',
+                    'sale_size', 'quarter_label']
+    st.dataframe(
+        filtered[cols_to_show].sort_values('order_date', ascending=False),
+        use_container_width=True,
+        height=400
+    )
+    st.caption(f"Showing {len(filtered):,} rows based on current filters")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
-st.divider()
-st.caption("Suraj Kartha · Data Engineering Portfolio · github.com/sur4jsk/superstore-sales-forecasting-pipeline")
+st.markdown("---")
+st.markdown(
+    "<center><small>Built by Vaisakh · "
+    "Superstore Sales Forecasting Pipeline · "
+    "Python | Pandas | Streamlit | Plotly | Power BI"
+    "</small></center>",
+    unsafe_allow_html=True
+)

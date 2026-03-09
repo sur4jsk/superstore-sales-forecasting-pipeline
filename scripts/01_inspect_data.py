@@ -1,13 +1,6 @@
-# ── 01_inspect_data.py ────────────────────────────────────────────────────────
-# STEP 1: Always inspect your data BEFORE touching it.
-# This script tells you what columns exist, what types they are,
-# how many nulls, and what the data looks like.
-# Run this first and read the output carefully.
-# ─────────────────────────────────────────────────────────────────────────────
-
 import pandas as pd
 
-# ── Load the raw Superstore CSV ───────────────────────────────────────────────
+#Loading the raw Superstore CSV
 df = pd.read_csv('data/raw/train.csv')
 
 print("=" * 60)
@@ -47,7 +40,8 @@ print(f"Ship Modes : {df['Ship Mode'].unique()}")
 print("\n" + "=" * 60)
 print("STEP 7: DATE RANGE")
 print("=" * 60)
-# Convert dates so we can find min/max
+
+#Convert dates to find min/max
 df['Order Date'] = pd.to_datetime(df['Order Date'], dayfirst=True)
 print(f"Earliest order : {df['Order Date'].min().date()}")
 print(f"Latest order   : {df['Order Date'].max().date()}")

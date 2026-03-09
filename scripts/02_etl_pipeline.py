@@ -1,11 +1,6 @@
-# ── 02_etl_pipeline.py ────────────────────────────────────────────────────────
-# ETL = Extract, Transform, Load
-# This is the core data engineering script.
-#
 # EXTRACT  : Read raw Superstore CSV
 # TRANSFORM: Clean it, fix data types, add useful columns
 # LOAD     : Save a clean version ready for analysis
-# ─────────────────────────────────────────────────────────────────────────────
 
 import pandas as pd
 
@@ -24,10 +19,10 @@ print("\n>>> TRANSFORM: Cleaning data...")
 
 # ── 1. Fix column names: remove spaces, make lowercase ───────────────────────
 df.columns = (df.columns
-              .str.strip()           # remove leading/trailing spaces
-              .str.lower()           # make lowercase
-              .str.replace(' ', '_') # replace spaces with underscores
-              .str.replace('-', '_') # replace hyphens with underscores
+              .str.strip()           
+              .str.lower()           
+              .str.replace(' ', '_') 
+              .str.replace('-', '_') 
               )
 print("    Column names standardised")
 
