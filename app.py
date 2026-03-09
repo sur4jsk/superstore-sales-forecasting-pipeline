@@ -70,19 +70,6 @@ if not forecast.empty:
         name="60-Day Forecast", mode="lines",
         line=dict(color="#F59E0B", width=2.5, dash="dash")
     ))
-    fig1.add_vrect(
-        x0=str(forecast["date"].min()),
-        x1=str(forecast["date"].max()),
-        fillcolor="#FEF3C7", opacity=0.25, layer="below", line_width=0
-    )
-    # Dividing line between historical and forecast
-    fig1.add_vline(
-        x=str(historical["date"].max()),
-        line_dash="dot", line_color="#9CA3AF", line_width=1.5,
-        annotation_text="Forecast Start",
-        annotation_position="top right",
-        annotation_font_color="#9CA3AF"
-    )
 
 fig1.update_layout(
     height=420, plot_bgcolor="white", paper_bgcolor="white",
